@@ -1,4 +1,4 @@
-
+#include "List.h" //include manquant
 namespace pr {
 
 // ******************* Chainon
@@ -12,7 +12,7 @@ size_t Chainon::length() {
 	return length();
 }
 
-void Chainon::print (std::ostream & os) {
+void Chainon::print (std::ostream & os) const{ //fonction const manquant
 	os << data ;
 	if (next != nullptr) {
 		os << ", ";
@@ -45,7 +45,7 @@ void List::push_front (const std::string& val) {
 	tete = new Chainon(val,tete);
 }
 
-bool empty() {
+bool List::empty() { //List:: manquant
 	return tete == nullptr;
 }
 

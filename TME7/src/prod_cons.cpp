@@ -22,8 +22,30 @@ void consomateur (Stack<char> * stack) {
 	}
 }
 
+std::vector<pid_t> conso;
+
+void handler(int signal){
+	for(auto c : conso){
+		kill(c,SIGINT);
+	}
+}
+
 int main () {
-	Stack<char> * s = new Stack<char>();
+
+	void * addr = mmap(0, sizeof(Stack<char>), PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_SHARED, -1, 0);
+
+	/*si pas anonyme*/
+	/*
+
+	 int fd = shm_open("/myshm", O_CREAT|O_EXCL|O_RDWR, 0600);
+	 ftruncate(fd, sizeof(Stack<char>));
+
+	 void * addr = mmap(0, sizeof(Stack<char>), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+
+	 */
+	Stack<char> * s = new (addr) Stack<char>();
+
+
 
 	pid_t pp = fork();
 	if (pp==0) {
@@ -36,11 +58,23 @@ int main () {
 		consomateur(s);
 		return 0;
 	}
+	else{
+		conso.push_back(pc);
+	}
+
+	signal(SIGINT, handler);
 
 	wait(0);
 	wait(0);
 
-	delete s;
+	s->~Stack<char>();
+	munmap(addr, sizeof(Stack<char>));
+
+	/*si pas anonyme*/
+	/*
+	 shm_unlink("/myshm");
+	 */
+
 	return 0;
 }
 

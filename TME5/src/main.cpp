@@ -1,6 +1,9 @@
 #include "Vec3D.h"
 #include "Rayon.h"
 #include "Scene.h"
+#include "ConcreteJob.h"
+#include "Pool.h"
+#include "Barrier.h"
 #include <iostream>
 #include <algorithm>
 #include <fstream>
@@ -102,62 +105,84 @@ void exportImage(const char * path, size_t width, size_t height, Color * pixels)
 // pas d'accents pour eviter les soucis d'encodage
 
 int main () {
+	// on pose une graine basee sur la date
+	default_random_engine re(std::chrono::system_clock::now().time_since_epoch().count
+	());
+	// definir la Scene
+	Scene scene (1000,1000);
+	const int NBSPHERES = 500;
 
 	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-	// on pose une graine basee sur la date
-	default_random_engine re(std::chrono::system_clock::now().time_since_epoch().count());
-	// definir la Scene : resolution de l'image
-	Scene scene (1000,1000);
-	// remplir avec un peu d'aléatoire
-	fillScene(scene, re);
-	
-	// lumieres 
+
+	// on remplit la scene de spheres colorees de taille position et couleur aleatoire
+	uniform_int_distribution<int> distrib(0, 200);
+	uniform_real_distribution<double> distribd(-200, 200);
+	for (int i = 0; i < NBSPHERES; i++) {
+		// position autour de l’angle de la camera
+		// rayon entre 3 et 33, couleur aleatoire
+		// distrib(re) rend un entier aleatoire extrait de re
+		scene.add(Sphere({50+distribd(re),50 + distribd(re),40 + distribd(re) },
+		double(distrib(re)%30) + 3.0, Color::random()));
+	}
+	// quelques spheres de plus pour ajouter du gout a la scene
+	scene.add(Sphere({50,50,40},15.0,Color::red));
+	scene.add(Sphere({100,20,50},55.0,Color::blue));
+
+	// les points de l’ecran
+	const Scene::screen_t & screen = scene.getScreenPoints();
+	// lumieres
 	vector<Vec3D> lights;
 	lights.reserve(3);
-	lights.emplace_back(Vec3D(50, 50, -50));
+	lights.emplace_back(Vec3D(50, 50, -20));
 	lights.emplace_back(Vec3D(50, 50, 120));
 	lights.emplace_back(Vec3D(200, 0, 120));
 
-	// les points de l'ecran, en coordonnées 3D, au sein de la Scene.
-	// on tire un rayon de l'observateur vers chacun de ces points
-	const Scene::screen_t & screen = scene.getScreenPoints();
-
-	// Les couleurs des pixels dans l'image finale
+	// Les couleurs des pixels
 	Color * pixels = new Color[scene.getWidth() * scene.getHeight()];
 
+
+	const int NBTHREAD = 8;
+	const int NBJOB = scene.getWidth() * scene.getHeight();
+
+	Pool pool(15); // queue size
+	vector<int> results(NBJOB);
+	pool.start(NBTHREAD);
+	Barrier b(NBJOB);
 	// pour chaque pixel, calculer sa couleur
 	for (int x =0 ; x < scene.getWidth() ; x++) {
-		for (int  y = 0 ; y < scene.getHeight() ; y++) {
-			// le point de l'ecran par lequel passe ce rayon
-			auto & screenPoint = screen[y][x];
-			// le rayon a inspecter
-			Rayon  ray(scene.getCameraPos(), screenPoint);
+		for (int y = 0 ; y < scene.getHeight() ; y++) {
+		// le point de l’ecran en coordonnees 3D
 
-			int targetSphere = findClosestInter(scene, ray);
-
-			if (targetSphere == -1) {
-				// keep background color
-				continue ;
-			} else {
-				const Sphere & obj = *(scene.begin() + targetSphere);
-				// pixel prend la couleur de l'objet
-				Color finalcolor = computeColor(obj, ray, scene.getCameraPos(), lights);
-				// le point de l'image (pixel) dont on vient de calculer la couleur
-				Color & pixel = pixels[y*scene.getHeight() + x];
-				// mettre a jour la couleur du pixel dans l'image finale.
-				pixel = finalcolor;
-			}
-
+			pool.submit(new ConcreteJob(x,y,pixels[y*scene.getHeight()
+			+ x],scene,lights,&b));
 		}
 	}
 
-	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-	    std::cout << "Total time "
-	              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-	              << "ms.\n";
+	b.waitFor();
+	pool.stop();
 
-	exportImage("toto.ppm",scene.getWidth(), scene.getHeight() , pixels);
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+	std::cout << "Total time "
+	<< std::chrono::duration_cast<std::chrono::milliseconds>(end - start).
+	count()
+	<< "ms.\n";
+
+	// ppm est un format ultra basique
+	ofstream img ("toto.ppm");
+	// P3 signifie : les pixels un par un en ascii
+	img << "P3" << endl; // ascii format, colors
+	// largeur hauteur
+	img << scene.getWidth() << "\n"<< scene.getHeight() << "\n" << "255" << endl;
+	// tous les pixels au format RGB
+	for (int y = 0 ; y < scene.getHeight() ; y++) {
+		for (int x =0 ; x < scene.getWidth() ; x++) {
+			Color & pixel = pixels[x*scene.getHeight() + y];
+			img << pixel << '\n';
+	}
+	}
+	img.close();
 
 	return 0;
 }
+
 
